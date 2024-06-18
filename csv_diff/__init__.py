@@ -4,10 +4,18 @@ import json
 import hashlib
 
 
+def _key_selector(row, keys):
+    return tuple(row[key] for key in keys)
+
+
+def _hash_selector(row, *_, **__):
+    return hashlib.sha1(json.dumps(row, sort_keys=True).encode("utf8")).hexdigest()
+
+
 def load_csv(fp, key=None, dialect=None):
     if dialect is None and fp.seekable():
         # Peek at first 1MB to sniff the delimiter and other dialect details
-        peek = fp.read(1024 ** 2)
+        peek = fp.read(1024**2)
         fp.seek(0)
         try:
             dialect = csv.Sniffer().sniff(peek, delimiters=",\t;")
@@ -18,12 +26,10 @@ def load_csv(fp, key=None, dialect=None):
     headings = next(fp)
     rows = [dict(zip(headings, line)) for line in fp]
     if key:
-        keyfn = lambda r: r[key]
+        keyfn = _key_selector
     else:
-        keyfn = lambda r: hashlib.sha1(
-            json.dumps(r, sort_keys=True).encode("utf8")
-        ).hexdigest()
-    return {keyfn(r): r for r in rows}
+        keyfn = _hash_selector
+    return {keyfn(r, key): r for r in rows}
 
 
 def load_json(fp, key=None):
@@ -33,12 +39,10 @@ def load_json(fp, key=None):
     for item in raw_list:
         common_keys.update(item.keys())
     if key:
-        keyfn = lambda r: r[key]
+        keyfn = _key_selector
     else:
-        keyfn = lambda r: hashlib.sha1(
-            json.dumps(r, sort_keys=True).encode("utf8")
-        ).hexdigest()
-    return {keyfn(r): _simplify_json_row(r, common_keys) for r in raw_list}
+        keyfn = _hash_selector
+    return {keyfn(r, key): _simplify_json_row(r, common_keys) for r in raw_list}
 
 
 def _simplify_json_row(r, common_keys):
@@ -91,9 +95,10 @@ def compare(previous, current, show_unchanged=False):
                     "key": id,
                     "changes": {
                         # field can be a list if id contained '.' - #7
-                        field[0]
-                        if isinstance(field, list)
-                        else field: [prev_value, current_value]
+                        field[0] if isinstance(field, list) else field: [
+                            prev_value,
+                            current_value,
+                        ]
                         for _, field, (prev_value, current_value) in diffs
                     },
                 }
